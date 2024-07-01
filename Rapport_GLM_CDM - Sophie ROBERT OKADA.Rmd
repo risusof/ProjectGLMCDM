@@ -1,0 +1,1585 @@
+---
+title: 'Rapport : Modèles Linéaires Généralisés & Choix de Modèles'
+author: "Sophie ROBERT OKADA"
+date: "2024-06-30"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(tidy.opts= list(width.cutoff = 60), tidy = TRUE)
+knitr::opts_chunk$set(cache = TRUE, dependson = "previous_chunk_name")
+```
+
+# 1. Introduction
+
+Dans le cadre du projet sur les données météorologiques à Bâle, nous cherchons à prédire s'il pleuvra le lendemain à partir de mesures journalières recueillies entre 2010 et 2018. La variable à prédire "pluie.demain" $Y_i$ est de type binaire où $Y_i \in \{0, 1\}$, et les variables explicatives comprennent des données de température, d'humidité, de pression, de nébulosité, de vitesse et direction des vents, de précipitations et d'ensoleillement.
+
+Pour prédire correctement notre variable d'intérêt, nous appliquerons un modèle linéaire généralisé particulièrement adapté pour gérer une réponse binaire. Un modèle linéaire généralisé est défini par le choix de la famille de lois aléatoires $L$ et par la fonction de lien $g$, où $g(E[Y_i]) = \beta_0 + \beta_1x_i$. Pour la variable dépendante $Y_i$, représentant la pluie le lendemain, nous appliquerons deux approches principales : la régression logistique dans un premier temps, suivi d'un modèle de régression probit dans une deuxième temps, afin de comparer leurs efficacités et précisions dans la prédiction des jours de pluie survenant le lendemain.
+
+## 1.1 Chargement des packages utiles
+
+Pour réaliser l'analyse, nous commencerons tout d'abord par charger les packages utiles suivants:
+
+```{r, message=FALSE, warning=FALSE}
+rm(list = ls())
+invisible(suppressMessages(lapply(c("readr", "corrplot", "forecast","car", "stats", "ggplot2", "kableExtra", "tidyverse", "gridExtra", "grid", "dplyr", "viridis", "summarytools", "reshape2", "knitr", "MASS", "ROCR"), library, character.only = TRUE)))
+```
+
+## 1.2 Chargement & Visualisation des données
+
+Nous allons ensuite charger les données d’entraînement "meteo.train", puis nous allons exclure la première variable nommée X qui est juste l'indice du nombre de données.
+
+```{r,message=FALSE, warning=FALSE}
+meteo_train <- read_csv("C:/Documents/Dauphine/Module 2/Modèle Linéaire Généralisé/Projet/meteo.train.csv", show_col_types = FALSE, name_repair = "minimal")
+meteo_train <- meteo_train[, -1]
+```
+
+Comme les noms des variables semblent difficiles à lire, et pour obtenir plus de clarté dans notre analyse, nous commencerons par renommer les variables. Les variables renommées sont présentées dans le tableau ci-dessous.
+
+```{r, fig.width=7, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+meteo_train <- meteo_train %>%
+  rename(
+    Year = Year,
+    Month = Month,
+    Day = Day,
+    Hour = Hour,
+    Minute = Minute,
+    TempMean = Temperature.daily.mean..2.m.above.gnd.,
+    HumidityMean = Relative.Humidity.daily.mean..2.m.above.gnd.,
+    PressureMean = Mean.Sea.Level.Pressure.daily.mean..MSL.,
+    PrecipitationTotal = Total.Precipitation.daily.sum..sfc.,
+    Snowfall = Snowfall.amount.raw.daily.sum..sfc.,
+    TotalCloudMean = Total.Cloud.Cover.daily.mean..sfc.,
+    HighCloudMean = High.Cloud.Cover.daily.mean..high.cld.lay.,
+    MediumCloudMean = Medium.Cloud.Cover.daily.mean..mid.cld.lay.,
+    LowCloudMean = Low.Cloud.Cover.daily.mean..low.cld.lay.,
+    Sunshine = Sunshine.Duration.daily.sum..sfc.,
+    RadShortwave = Shortwave.Radiation.daily.sum..sfc.,
+    WindSpeed10mMean = Wind.Speed.daily.mean..10.m.above.gnd.,
+    WindDir10mMean = Wind.Direction.daily.mean..10.m.above.gnd.,
+    WindSpeed80mMean = Wind.Speed.daily.mean..80.m.above.gnd.,
+    WindDir80mMean = Wind.Direction.daily.mean..80.m.above.gnd.,
+    WindSpeed900mbMean = Wind.Speed.daily.mean..900.mb.,
+    WindDir900mbMean = Wind.Direction.daily.mean..900.mb.,
+    WindGustMean = Wind.Gust.daily.mean..sfc.,
+    TempMax = Temperature.daily.max..2.m.above.gnd.,
+    TempMin = Temperature.daily.min..2.m.above.gnd.,
+    HumidityMax = Relative.Humidity.daily.max..2.m.above.gnd.,
+    HumidityMin = Relative.Humidity.daily.min..2.m.above.gnd.,
+    PressureMax = Mean.Sea.Level.Pressure.daily.max..MSL.,
+    PressureMin = Mean.Sea.Level.Pressure.daily.min..MSL.,
+    TotalCloudMax = Total.Cloud.Cover.daily.max..sfc.,
+    TotalCloudMin = Total.Cloud.Cover.daily.min..sfc.,
+    HighCloudMax = High.Cloud.Cover.daily.max..high.cld.lay.,
+    HighCloudMin = High.Cloud.Cover.daily.min..high.cld.lay.,
+    MediumCloudMax = Medium.Cloud.Cover.daily.max..mid.cld.lay.,
+    MediumCloudMin = Medium.Cloud.Cover.daily.min..mid.cld.lay.,
+    LowCloudMax = Low.Cloud.Cover.daily.max..low.cld.lay.,
+    LowCloudMin = Low.Cloud.Cover.daily.min..low.cld.lay.,
+    WindSpeed10mMax = Wind.Speed.daily.max..10.m.above.gnd.,
+    WindSpeed10mMin = Wind.Speed.daily.min..10.m.above.gnd.,
+    WindSpeed80mMax = Wind.Speed.daily.max..80.m.above.gnd.,
+    WindSpeed80mMin = Wind.Speed.daily.min..80.m.above.gnd.,
+    WindSpeed900mbMax = Wind.Speed.daily.max..900.mb.,
+    WindSpeed900mbMin = Wind.Speed.daily.min..900.mb.,
+    WindGustMax = Wind.Gust.daily.max..sfc.,
+    WindGustMin = Wind.Gust.daily.min..sfc.,
+    pluie.demain = pluie.demain
+  )
+
+old_names <- c(
+  "Year", "Month", "Day", "Hour", "Minute", "Temperature.daily.mean..2.m.above.gnd.",
+  "Relative.Humidity.daily.mean..2.m.above.gnd.", "Mean.Sea.Level.Pressure.daily.mean..MSL.",
+  "Total.Precipitation.daily.sum..sfc.", "Snowfall.amount.raw.daily.sum..sfc.",
+  "Total.Cloud.Cover.daily.mean..sfc.", "High.Cloud.Cover.daily.mean..high.cld.lay.",
+  "Medium.Cloud.Cover.daily.mean..mid.cld.lay.", "Low.Cloud.Cover.daily.mean..low.cld.lay.",
+  "Sunshine.Duration.daily.sum..sfc.", "Shortwave.Radiation.daily.sum..sfc.",
+  "Wind.Speed.daily.mean..10.m.above.gnd.", "Wind.Direction.daily.mean..10.m.above.gnd.",
+  "Wind.Speed.daily.mean..80.m.above.gnd.", "Wind.Direction.daily.mean..80.m.above.gnd.",
+  "Wind.Speed.daily.mean..900.mb.", "Wind.Direction.daily.mean..900.mb.",
+  "Wind.Gust.daily.mean..sfc.", "Temperature.daily.max..2.m.above.gnd.",
+  "Temperature.daily.min..2.m.above.gnd.", "Relative.Humidity.daily.max..2.m.above.gnd.",
+  "Relative.Humidity.daily.min..2.m.above.gnd.", "Mean.Sea.Level.Pressure.daily.max..MSL.",
+  "Mean.Sea.Level.Pressure.daily.min..MSL.", "Total.Cloud.Cover.daily.max..sfc.",
+  "Total.Cloud.Cover.daily.min..sfc.", "High.Cloud.Cover.daily.max..high.cld.lay.",
+  "High.Cloud.Cover.daily.min..high.cld.lay.", "Medium.Cloud.Cover.daily.max..mid.cld.lay.",
+  "Medium.Cloud.Cover.daily.min..mid.cld.lay.", "Low.Cloud.Cover.daily.max..low.cld.lay.",
+  "Low.Cloud.Cover.daily.min..low.cld.lay.", "Wind.Speed.daily.max..10.m.above.gnd.",
+  "Wind.Speed.daily.min..10.m.above.gnd.", "Wind.Speed.daily.max..80.m.above.gnd.",
+  "Wind.Speed.daily.min..80.m.above.gnd.", "Wind.Speed.daily.max..900.mb.",
+  "Wind.Speed.daily.min..900.mb.", "Wind.Gust.daily.max..sfc.", "Wind.Gust.daily.min..sfc.",
+  "pluie.demain"
+)
+new_names <- c(
+  "Year", "Month", "Day", "Hour", "Minute", "TempMean", "HumidityMean",
+  "PressureMean", "PrecipitationTotal", "Snowfall", "TotalCloudMean", "HighCloudMean",
+  "MediumCloudMean", "LowCloudMean", "Sunshine", "RadShortwave",  "WindSpeed10mMean",
+  "WindDir10mMean", "WindSpeed80mMean", "WindDir80mMean", "WindSpeed900mbMean",
+  "WindDir900mbMean", "WindGustMean", "TempMax", "TempMin",
+  "HumidityMax", "HumidityMin", "PressureMax", "PressureMin", "TotalCloudMax", "TotalCloudMin", "HighCloudMax",
+  "HighCloudMin", "MediumCloudMax", "MediumCloudMin", "LowCloudMax", "LowCloudMin", "WindSpeed10mMax", "WindSpeed10mMin", "WindSpeed80mMax",
+  "WindSpeed80mMin", "WindSpeed900mbMax", "WindSpeed900mbMin", "WindGustMax",
+  "WindGustMin", "pluie.demain"
+)
+renamed_columns <- data.frame(NewNames = new_names, OldNames = old_names)
+kable(renamed_columns, caption = "Nouveaux Noms de variables meteo_train")
+```
+
+Dans le summary des données présenté en annexe 1 de ce report, [[*Summary des données*]{.underline}](#annexe1){style="color: blue"}, et dans le rapport html, nous remarquons qu'il y a 1180 lignes et pas de valeurs manquantes. Les variables "Hour" et "Minute" étant semblables pour toutes les données, nous exclurons ces variables.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+s = dfSummary(meteo_train)
+print(s, method = "render", headings = FALSE)
+}
+```
+
+# 2. Représentation Graphique et Corrélation
+
+## 2.1 Représentation Graphique - BoxPlots
+
+Nous allons regarder maintenant les différentes variables numériques par rapport à la variable binaire "pluie.demain" à l'aide de box plots.
+
+```{r boxplots, echo=FALSE, fig.width=16, fig.height=18, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+variables <- c("TempMean", "TempMax", "TempMin", "PrecipitationTotal", 
+               "HumidityMean", "HumidityMax", "HumidityMin","Snowfall", 
+               "PressureMean", "PressureMax", "PressureMin", "Sunshine",
+               "TotalCloudMean", "TotalCloudMax", "TotalCloudMin", "RadShortwave", 
+               "HighCloudMean", "HighCloudMax", "HighCloudMin",  "MediumCloudMean",
+               "MediumCloudMax","MediumCloudMin", "LowCloudMean", "LowCloudMax", 
+               "LowCloudMin", "WindGustMean", "WindGustMax", "WindGustMin",
+               "WindSpeed10mMean",  "WindSpeed10mMax", "WindSpeed10mMin", "WindDir10mMean", 
+               "WindSpeed80mMean", "WindSpeed80mMax", "WindSpeed80mMin", "WindDir80mMean",
+               "WindSpeed900mbMean","WindSpeed900mbMax", "WindSpeed900mbMin", "WindDir900mbMean")
+
+plot_list <- list()
+for (var in variables) {
+  Bplot <- ggplot(meteo_train, aes_string(x = "pluie.demain", y = var, fill = "pluie.demain")) + geom_boxplot() + scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "grey")) + labs(title = var, x = "pluie.demain", y = var) + theme_minimal() +
+    theme(legend.position = "none", plot.title = element_text(size = 8))
+  plot_list[[var]] <- Bplot
+}
+
+title <- textGrob("Boxplots des Variables par rapport à pluie.demain", gp = gpar(fontsize = 15, fontface = "bold"))
+
+grid.arrange(arrangeGrob(grobs = plot_list, ncol = 4), top = title)
+```
+
+Sur les box-plots précédents, on notera pour les variables suivantes de:
+
+-   Températures (TempMean, TempMax & TempMin) que les médianes semblent très légèrement plus élevées les jours de pluie comparés aux jours sans pluie bien que les différences ne soient pas très marquées. Les variables "température" semblent être des prédicteurs très moyens de la pluie du lendemain.
+
+-   Précipitations (PrecipitationTolal & Snowfall) que la présence de pluie est légèrement plus élévée les jours de pluie le lendemain. La variable Snowfall ne semble pas être un bon prédicteur car la plupart des valeurs sont à zéros dans les deux catégories.
+
+-   Humidité (HumidityMean, HumidityMax & HumidityMin) que l'humidité moyenne et minimale sont légèrement plus élevées les jours de pluie le lendemain et peuvent être des bons prédicteurs. La variable HumidityMax semble être un moins bon indicateur des conditions de pluie car la médiane est similaire entre les jours avec et sans pluie et les valeurs maximales sont plus élevées les jours sans pluie.
+
+-   Pression (PressureMean, PressureMax & PressureMin) que les valeurs sont plus faibles les jours de pluie, indiquant des conditions de pression favorisant la pluie.
+
+-   Ensoleillement (Sunshine) qu'il y a une réduction des minutes d'ensoleillement les jours de pluie.
+
+-   Nébulosité (TotalCloudMean, TotalCloudMax, TotalCloudMin, HighCloudMean, HighCloudMax, HighCloudMin, MediumCloudMean, MediumCloudMax, MediumCloudMin, LowCloudMean, LowCloudMax, LowCloudMin) que les variables se terminant par "Mean" et "Max" montrent une nébulosité plus élévée les jours de pluie le lendemain et semblent être de bons prédicteurs. Les variables se terminant par "Min", quant à elles, montrent beaucoup moins différences significatives entre les jours avec et sans pluie et seront moins utiles à la prédictions
+
+-   Rayonnement solaire (RadShortwave) que la variable est légèrement réduite les jours de pluie ce qui peut s'expliquer par une couverture nuageuse plus épaisse. Cette variable peut être un bon prédicteur.
+
+-   Rafales de Vent (WindGustMean, WindGustMax, WindGustMin) qu'il y a des différences notables entre les jours sans et avec pluie. Les valeurs semblent plus élevées les jours de pluie indiquant des conditions de vent plus fort.
+
+-   Vitesse et direction du vent (WindSpeed10mMean, WindSpeed10mMax, WindSpeed10mMin, WindDir10mMean, WindSpeed80mMean, WindSpeed80mMax, WindSpeed80mMin, WindDir80mMean, WindSpeed900mbMean, WindSpeed900mbMax, WindSpeed900mbMin, WindDir900mbMean,) que ces variables semblent être de bons prédicteurs de pluie le lendemain car elles semblent toutes plus élevées les jours de pluie le lendemain.
+
+Pour nous assurer de ces résultats, nous allons voir maintenant les corrélations entre les variables.
+
+## 2.2 Corrélations entre les variables
+
+### 2.2.1 Matrice de Corrélation
+
+La matrice de corrélation présentée ci-dessous permet de visualiser les corrélations entre les différentes variables ainsi que leur corrélation avec le variable pluie.demain = "TRUE".
+
+On observe ici que les variables comportant "Mean", "Max" & "Min" sont fortement corrélées entre elles. Pour éviter les problèmes de colinéarité, il sera nécessaire de sélectionner parmi ces 3 types de variables celle qui présente la plus forte corrélation avec la variable "pluie.demain". On pourra donc ainsi inclure la variable la plus pertinente dans notre modèle.
+
+On remarque également des fortes corrélations entre les variables de pression et de nébulosité totale indiquant que les pressions plus basses sont souvent associés à une couverture nuageuse plus élévée.
+
+Comme constaté avec les boxplots précédemment, on note que la nébulosité, l'humidité, la pression, et l'ensoleillement sont assez corrélés avec les jours pluvieux le lendemain. La température montre une corrélation plus assez modérée avec pluie.demain = "TRUE". Les tombées de neige montrent une corrélation faible avec pluie.demain = "TRUE" ce qui confirme ce que nous avons vu précédemment.
+
+```{r, fig.width=12, fig.height=12, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+# Exclusion des variables "Hour" et "Minute" de meteo_train
+meteo_train <- meteo_train %>%
+  dplyr::select(-Hour, -Minute)
+pluie.demain_TRUE <- meteo_train$pluie.demain == "TRUE"
+columns_excluded <- c("pluie.demain")
+data_for_corr <- meteo_train[, !(names(meteo_train) %in% columns_excluded)]
+data_for_corr <- cbind(data_for_corr, pluie.demain_TRUE)
+cor_matrix <- cor(data_for_corr, use = "complete.obs")
+# Matrice de corrélation
+corrplot(cor_matrix, method = "circle", type = "full", 
+         tl.col = "black", tl.srt = 90,cl.cex = 0.7, tl.cex = 0.6, mar = c(0,0,1,0), 
+         title = "Correlation Matrix")
+```
+
+### 2.2.2 Corrélation avec pluie.demain = TRUE
+
+Dans cette partie nous allons faire un zoom sur les variables corrélées avec "pluie.demain" = TRUE. On remarque que les groupes de variables suivantes ont un impact "pluie.demain" = TRUE:
+
+-   Nébulosité: les variables liées à la couverture nuageuse, surtout TotalCloud, HighCloud & MediumCloud, montrent des corrélations positives avec les jours de pluie. Cela confirme que ces variables sont de bons indicateurs pour la prédiction.
+
+-   Vent: Les variables des rafales de vent ont une corrélation forte avec la variable réponse, en particulier "WindGustMax". Les vitesses "Max" des vents à différents altitudes montrent également de corrélation positive. On peut également utiliser ces variables comme prédicteurs.
+
+-   Pression: Les 3 variables de pression sont négativement corrélées avec "pluie.demain" = TRUE. On confirme ici que les pressions plus basses sont associées à des conditions pluvieuses.
+
+-   Ensoleillement: la corrélation avec les jours de pluie est négative ici. Cela fait de cet variable un bon prédicteur.
+
+-   Humidité, Température et autres variables: Les corrélations avec ces variables semblent faibles indiquant qu'elles ne sont pas les principaux prédicteurs de la pluie le lendemain.
+
+```{r, fig.width=8, fig.height=6, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+# Conversion de la variable "pluie.demain" en numérique
+pluie.demain_Num_TRUE <- as.numeric(meteo_train$pluie.demain == "TRUE")
+
+# Calcul des corrélations entre toutes les variables et "pluie.demain"
+correlationTRUE <- sapply(meteo_train[, sapply(meteo_train, is.numeric)], function(x) {
+  cor.test(x, pluie.demain_Num_TRUE, method = "pearson")$estimate
+})
+names(correlationTRUE) <- gsub(".cor$", "", names(correlationTRUE))
+cor_df_TRUE <- data.frame(Variable = names(correlationTRUE), Correlation = unlist(correlationTRUE))
+cor_df_TRUE <- cor_df_TRUE[order(abs(cor_df_TRUE$Correlation), decreasing = TRUE), ]
+
+ggplot(cor_df_TRUE, aes(x = reorder(Variable, Correlation), y = Correlation, fill = Correlation)) +
+  geom_col(color = "black", width = 0.7) +
+  geom_text(aes(label = round(Correlation, 2)), 
+            hjust = ifelse(cor_df_TRUE$Correlation < 0, 1.1, -0.1), 
+            color = "black", size = 2.5) +
+  scale_fill_viridis(option = "plasma", direction = -1) +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 10, face = "bold"),
+    axis.title.y = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 8),
+    panel.grid.major = element_blank(),  
+    panel.grid.minor = element_blank(),  
+    axis.line = element_line(color = "black"),  
+    plot.background = element_rect(fill = "white"),
+    panel.background = element_rect(fill = "white")
+  ) +
+  labs(
+    title = "Corrélation avec pluie.demain = TRUE",
+    x = "Variables",
+    y = "Corrélation"
+  )
+```
+
+### 2.2.3 Variables corrélées entre elles
+
+Pour identifier plus précisément les variables fortement corrélées entre elles, nous avons construit une matrice de corrélation, ci-dessous, qui met uniquement en évidence les variables présentant des corrélations positives ou négatives égale ou supérieure à 70%.
+
+Comme précédemment, nous voyons que les variables d'un même groupe ayant un "Mean", "Max" et "Min" sont fortement corrélés entre elles. Par exemple, la variable de "PressureMean" est corrélée à 97% avec les variables "PressureMax" et "PressureMean". Il va falloir choisir l'une des 3 variables pour notre modèle.
+
+Concernant les corrélations entre les groupes de variables, nous remarquons que la variable "Sunshine" est fortement corrélée négativement aux variables de couvertures nuageuses "TotalcloudMean", "MediumCloudMean" et "LowCloudMean" indiquant que des jours ensoleillés sont associés à une faible couverture nuageuse. Cette variable aussi est très corrélée positivement à la variable "Radshorwave" car les jours avec plus d'ensoleillement tendent à recevoir plus de rayonnement solaire.
+
+Nous remarquerons aussi avec ce graph que les variables de nébulosité sont très corréles positivement entre elles et aussi que les variables de rafales de vent sont très corrélés positivement avec les variables indiquant les vitesses du vent.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Identification des paires de variables corrélées à plus de 70%
+highly_correlated_var <- function(data_for_corr, threshold = 0.7) {
+  cor_matrix <- cor(data_for_corr, use = "complete.obs")
+  high_correl <- which(abs(cor_matrix) > threshold, arr.ind = TRUE)
+  high_correl <- high_correl[high_correl[, 1] < high_correl[, 2], ]
+  
+#Calcul des variables corrélées
+  high_correl_pairs <- data.frame(
+    Variable1 = rownames(cor_matrix)[high_correl[, 1]],
+    Variable2 = colnames(cor_matrix)[high_correl[, 2]],
+    Correlation = cor_matrix[high_correl]
+  )
+    return(high_correl_pairs)
+}
+high_correl_pairs <- highly_correlated_var(data_for_corr, threshold = 0.7)
+kable(high_correl_pairs, caption = "Variables corrélées à plus de 70%")
+}
+```
+
+```{r, fig.width=10, fig.height=8, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+# Identification des paires de variables corrélées à plus de 70%
+highly_correlated_var <- function(data_for_corr, threshold = 0.7) {
+  cor_matrix <- cor(data_for_corr, use = "complete.obs")
+  high_correl <- which(abs(cor_matrix) > threshold, arr.ind = TRUE)
+  high_correl <- high_correl[high_correl[, 1] < high_correl[, 2], ]
+  
+#Calcul des variables corrélées
+  high_correl_pairs <- data.frame(
+    Variable1 = rownames(cor_matrix)[high_correl[, 1]],
+    Variable2 = colnames(cor_matrix)[high_correl[, 2]],
+    Correlation = cor_matrix[high_correl]
+  )
+  return(high_correl_pairs)
+}
+data_for_corr <- meteo_train[, sapply(meteo_train, is.numeric)] 
+high_correl_pairs <- highly_correlated_var(data_for_corr, threshold = 0.7)
+
+cor_matrix <- cor(data_for_corr, use = "complete.obs")
+melted_cor_matrix <- melt(cor_matrix)
+melted_cor_matrix <- subset(melted_cor_matrix, abs(value) >= 0.7 & Var1 != Var2)
+melted_cor_matrix$text_color <- ifelse(melted_cor_matrix$value < -0.7, "white", "black")
+
+ggplot(data = melted_cor_matrix, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2), color = text_color), size = 2) +
+  scale_fill_viridis(name = "Corrélation", option = "viridis") +
+  scale_color_identity() + theme_minimal() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) + labs(title = "Variables Corrélées >= 70%", x = "Variable 1",y = "Variable 2")
+
+```
+
+### 2.2.4 Variables retenues
+
+A la suite de notre étude graphique et corrélation et dans le but de pour constuire un modèle manuel, nous allons sélectionner les variables suivantes:
+
+-   MediumCloudMax : Cette variable la plus corrélée avec la variable "pluie.demain = TRUE" et est peu corrélée avec les autres variables y compris "Sunshine". On ne prendra pas "MediumCloudMean" car ces deux variables sont corrélées à 70% ensemble.
+
+-   HighCloudMax: Cette variable est corrélée avec la variable "pluie.demain = TRUE" et est peu corrélée avec les autres variables y compris "Sunshine". On ne prendra pas "HighCloudMean" car ces deux variables sont corrélées à 75% ensemble.
+
+-   TotalCloudMax: Cette variable est corrélée avec la variable "pluie.demain = TRUE" et est peu corrélée avec les autres variables y compris "Sunshine". On ne prendra pas "LowCloudMax" car ces deux variables sont corrélées à 77% ensemble.
+
+-   WindGustMax: Cette variable est corrélée avec la variable "pluie.demain = TRUE", peu corrélée avec Sunshine et très corrélée avec les variables "WindSpeed". Cela nous permet de prendre uniquement une variable.
+
+-   TempMin: Cette variable est la plus corrélée des variables de Température avec "pluie.demain". Nous avons sélectionner une seule variable car elle est très corrélée avec "TempMax" et "TempMean".
+
+-   PressureMin: Cette variable est la plus corrélée négativement avec "pluie.demain = TRUE". Nous avons sélectionner une seule variable car elle est très corrélée avec "PressureMax" et "PressureMean".
+
+-   WindDir900mbMean: Cette variable est la plus corrélée des variables de direction du vent avec "pluie.demain = TRUE" et n'est pas corrélée à plus de 70% avec les autres variables.
+
+-   Sunshine: Cette variable est corrélée négativement avec "pluie.demain = TRUE". Elle n'a pas de corrélation avec les variables "CloudMax" mais avec les variables "CloudMean". Elle a une corrélation positive à 75% avec la variable RadShortwave qui est donc exclus.
+
+-   PrecipitationTotal: Cette variable a une corrélation positive avec "pluie.demain = TRUE" et n'a pas corrélation à plus de 70% avec les autres variables.
+
+Notre model manuel prendra en compte toutes ces variables.
+
+# 3. Choix du modèle
+
+Pour prédire notre variable réponse "pluie.demain", qui est de type binaire et qui suit une Loi de Bernoulli, nous allons nous intéresser au modèle linéaire généralisé utilisant la fonction de lien "logit" dans un premier temps et la fonction de lien "probit" dans un deuxième temps.
+
+## 3.1 Choix du modèle Logistique
+
+Le modèle logistique est défini par: $Y_i \sim \text{Bernoulli}(p_i) ~ln \left(\frac{p_i}{1 - p_i}\right) = \beta_0 + \beta_1 x_i$ ce qu'on peut aussi écrire en $P(Y_i = 1) = \frac{e^{\beta_0 + \beta_1 x_i}}{1 + e^{\beta_0 + \beta_1 x_i}}$. 
+
+Les coefficients $\beta$ sont estimés en maximisant la vraisemblance et représentent le changement du logarithme de côtes, dit logit, pour une unité de changement dans la variable dépendante en tenant constantes toutes les autres variables. 
+
+Dans les summary présenté pour chaque modèle, on calculera également le rapport de côtes (odds ratio) qui a pour formule $e^{\beta_i}$. Cette notion est utilisée pour mesurer l'impact d’une covariable sur la probabilité d’un évènement.Un rapport de cotes > 1 indique que la probabilité augmente, et < 1 qu'elle diminue. On calculera également la probabilité correspondante $p_i = P(Y_i = 1) = \left(\frac{\exp(\beta_i)}{1 + \exp(\beta_i)}\right)$ pour avoir une meilleure lisibilité.
+
+### 3.1.1 Modèle initial
+
+Nous commencerons par regarder un model_initial, qui prend en compte toutes les variables encore présente dans "meteo_train".
+
+```{r}
+model_initial <- glm(pluie.demain ~ ., family = binomial, data = meteo_train)
+```
+
+Ci dessous est présenté, le summary du model_initial avec les coefficients, les odds ratio, la probabilité et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après cinq itérations du scoring de Fisher.
+
+```{r table-results, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_initial <- glm(pluie.demain ~ ., family = binomial, data = meteo_train)
+model_summary <- summary(model_initial)$coefficients
+
+# Calcul des Odds Ratios
+odds_ratios <- exp(model_summary[, "Estimate"])
+
+# Calcul des Probas
+probabilities <- (exp(model_summary[, "Estimate"]) / (1 + exp(model_summary[, "Estimate"]))) * 100
+
+result_table <- data.frame(
+  Estimate = format(round(model_summary[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary[, "Pr(>|z|)"], 3), nsmall = 3),
+  `Odds Ratio` = format(round(odds_ratios, 3), nsmall = 3),
+  `Probability (%)` = format(round(probabilities, 3), nsmall = 3),
+  Significance = ifelse(model_summary[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary[, "Pr(>|z|)"] < 0.05, "*", 
+                                      ifelse(model_summary[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+   kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_initial <- glm(pluie.demain ~ ., family = binomial, data = meteo_train)
+
+model_stats <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_initial$null.deviance, model_initial$deviance, model_initial$iter, AIC(model_initial)),
+  DF = c(model_initial$df.null, model_initial$df.residual, NA, NA)
+)
+
+kable(model_stats)
+
+```
+
+On remarque dans ce model_initial qu'il y a uniquement 7 coefficients statistiquement significatifs. Le modèle semble assez complexe et semble avoir beaucoup de colinéarité.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_initial)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF du package {car}, qui mesure à quel point la variance d'un coefficient de régression est augmentée en raison de la colinéarité, nous allons pouvoir étudier quelles sont les variables ayant une colinéarité élevée. Un VIF supérieur à 7 est souvent utilisé comme indicateur d'une colinéarité sévère qui nécessite une attention.
+Les résultats détaillés sont présentés dans le version html du document. Parmi les vif les plus important, nous avons "TempMean" avec un vif de 258 et surtout "PressureMean avec un vif de 189. Cette dernière variable est pourtant statistiquement significative avec un odd ratio > 1. Sur les 43 variables du modèle, 16 ont un vif inférieur à 7, 3 ont un vif supérieur à 100 et 24 ont un vif entre 7 et 100. Ce modèle a bien de nombreuses colinéarité.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_initial, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_initial, test = "LRT") présentée dans la version html du report. Pour chaque ajout d'un prédicteur dans le modèle, la fonction calcule la deviance du modèle et effectue un test du rapport de vraisemblance entre le modèle avec le prédicteur et sans le prédicteur. Une p-value inférieure à 0.05 indique que le prédicteur améliore significativement l'ajustement du modèle. Dans le model_intitial, 17 variables réduisent la deviance du le modèle. Ces variables apportent une contribution significative et utile à la prédiction de la variable réponse. Parmi les plus significatives on retrouve les variables: "PressureMin", "PressureMax", "PrecipitationTotal", "TotalCloudMean", "WindDir900mbMean", "HumidityMean", "WindSpeed10mMean", "TempMean". Nous pouvons faire également un test de deviance
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$ dans lequel la variable réponse $Y_i$, "pluie.demain" dans notre cas, est iid et il existe un $p$ pour tout pour tout $i$, $p_i=p$. Ce modèle est équivalent à dire que $\beta_1 = \beta_2 = \ldots = \beta_k = 0$ et le degré de liberté est égal à 1. Dans un deuxième temps on comparera notre modèle à un modèle saturé $M_{sat}$ dans lequel il n'y a aucune structure aux $p_i$ et $n$ degrés de liberté. Les trois modèles sont imbriqués comme ceci: $M_0 \subset M_k \subset M_{\text{sat}}$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkinitial  <- pchisq(1635.4 - 1232.7, 1179 - 1136, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkinitial, scientific = TRUE))
+```
+On testera d'abord $M_O$ contre $M_k$ en utilisant la statistique de test suivante: $D_0 - D_k = -2 \ln \left(\frac{\text{vraisemblance } M_{\text{0}}}{\text{vraisemblance } M_k}\right)$ où $D_0$ est la déviance nulle et $D_k$ est la déviance résiduelle. Sous l'hypothèse que $M_0$ est le vrai modèle on a $D_0 - D_k \sim \chi^2(k)$. La déviance null du modele_intial est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1232.7 pour 1136 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_initial avec plus de variable est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$ qui n'inclut que l'intercept.
+
+```{r}
+pvalMkMsatinitial <- pchisq(1232.7, 1136, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatinitial))
+```
+On testera ensuite $M_k$ contre $M_{sat}$ en utilisant la statistique de test suivante: 
+$D_k = -2 \ln \left(\frac{\text{vraisemblance de } M_k}{\text{vraisemblance de } M_{\text{sat}}}\right)$ où $D_k$ est la déviance résiduelle. Sous l’hypothèse que $M_k$ ) est le vrai modèle, on a $D_k \sim \chi^2_{n-k-1}$. La déviance résiduelle du model_inital est de 1232.7 pour 1136 degrés de liberté. On remarquera que la p-valeur est de 0.023 et donc inférieur à 0.05. On rejette donc notre modèle initial car on lui préfère le modèle saturé. Notre modèle n'est pas suffisant.
+
+- Prédiction: Malgré le fait que le model_inital soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. On cherche ici à faire une prédiction binaire. Si notre prédiction est $\tilde{Y} \sim \text{Bernoulli}(\tilde{p})$ avec $\tilde{p} = \frac{e^{\hat{\beta} \tilde{X}}}{1 + e^{\hat{\beta} \tilde{X}}}$, on va souvent prédire 1 si $\tilde{p} \geq \frac{1}{2}$ et 0 si $\tilde{p} < \frac{1}{2}$. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 158/579 = 27%, un spécificité 421/579 = 0.72 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 464/601 = 77%. En tout le modele_inital donne 75% de bonnes prédictions.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_initial = predict(model_initial, newdata = meteo_train, type = "response")
+pred_initial = (pred_prob_initial >= 0.5)
+table_initial <- table(pred_initial, meteo_train$pluie.demain)
+table_initial_print <- as.data.frame.matrix(table_initial)
+kable(table_initial_print, caption = "Table de Décision - Model_initial")
+
+accuracy_model_initial <- (mean(pred_initial == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_initial))
+```
+
+Nous pouvons aussi peut définir un seuil $s$ optimal. On pourrait mettre des poids pour pénaliser les mauvaises prédictions mais nous le ferrons pas dans ce rapport. Le seuil optimal reste donc proche de 0.5 et est de 0.49. Une fausse prédiction est enlevée. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_initial fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 82%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). 
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_initial <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_initial <- (pred_prob_initial >= seuils[i])
+  res_initial[i] <- sum(pred_initial & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_initial & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_initial, type = "l", main = "Optimisation du Seuil - Model_initial", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_initial <- seuils[which.min(res_initial)]
+#cat("Meilleur seuil:", best_seuil_initial, "\n")
+
+cout = function(s) {
+  pred_initial <- (pred_prob_initial >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_initial & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_initial & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5 <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil <- cout(best_seuil_initial)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_initial <- prediction(pred_prob_initial, meteo_train$pluie.demain)
+perf_initial <- performance(pred_roc_initial, "tpr", "fpr")
+plot(perf_initial, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_initial <- performance(pred_roc_initial, "auc")
+auc_value_initial <- auc_initial@y.values[[1]]
+#cat("AUC - model_initial:", auc_value_initial, "\n")
+
+results_initial <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_initial"),
+  Value = c(sprintf("%.2f", best_seuil_initial), cost_0_5, cost_best_seuil, sprintf("%.2f", auc_value_initial))
+)
+
+kable(results_initial, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+
+### 3.1.2 Modèle Manuel
+
+Nous continuerons par regarder un model_manuel, qui prend uniquement en compte les variables de la partie graphique et corrélation.
+
+```{r}
+model_manuel <- glm(pluie.demain ~ MediumCloudMax + HighCloudMax + TotalCloudMax + WindGustMax + TempMin + PressureMin + WindDir900mbMean + Sunshine + PrecipitationTotal, family = binomial, data = meteo_train)
+```
+
+Ci dessous est présenté, le summary du model_manuel avec les coefficients, les odds ratio, la probabilité et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après 4 itérations du scoring de Fisher.
+
+```{r table-results1, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_manuel <- glm(pluie.demain ~ MediumCloudMax + HighCloudMax + TotalCloudMax + WindGustMax + TempMin + PressureMin + WindDir900mbMean + Sunshine + PrecipitationTotal, family = binomial, data = meteo_train)
+model_summary_manuel <- summary(model_manuel)$coefficients
+
+# Calcul des Odds Ratios
+odds_ratios_manuel <- exp(model_summary_manuel[, "Estimate"])
+
+# Calcul des Probas
+probabilities_manuel <- (exp(model_summary_manuel[, "Estimate"]) / (1 + exp(model_summary_manuel[, "Estimate"]))) * 100
+
+result_table_manuel <- data.frame(
+  Estimate = format(round(model_summary_manuel[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary_manuel[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary_manuel[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary_manuel[, "Pr(>|z|)"], 3), nsmall = 3),
+  `Odds Ratio` = format(round(odds_ratios_manuel, 3), nsmall = 3),
+  `Probability (%)` = format(round(probabilities_manuel, 3), nsmall = 3),
+  Significance = ifelse(model_summary_manuel[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary_manuel[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary_manuel[, "Pr(>|z|)"] < 0.05, "*", 
+                                      ifelse(model_summary_manuel[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table_manuel, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table_manuel, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_manuel <- glm(pluie.demain ~ MediumCloudMax + HighCloudMax + TotalCloudMax + WindGustMax + TempMin + PressureMin + WindDir900mbMean + Sunshine + PrecipitationTotal, family = binomial, data = meteo_train)
+
+model_stats_manuel <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_manuel$null.deviance, model_manuel$deviance, model_manuel$iter, AIC(model_manuel)),
+  DF = c(model_manuel$df.null, model_manuel$df.residual, NA, NA)
+)
+
+kable(model_stats_manuel)
+```
+
+On remarque dans ce model_manuel qu'il y a 6 coefficients statistiquement significatifs sur 9 variables. Le modèle est moins complexe mais à un AIC un peu moins bon. 
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_manuel)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF décrite plus haut. On remarque que tous les vifs sont inférieurs à 2.32. Ce modèle n'a pas de colinéarité. Les résultats détaillés sont présentés dans le version html du document. 
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_manuel, test = "LRT")
+anova(model_initial, model_manuel, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_manuel, test = "LRT") présentée dans la version html du report. Dans le model_manuel, 7 variables réduisent la deviance du le modèle. "MediumCloudMax" est la variable qui réduit le plus la deviance. "Sunshine" et "PrecipitationTotal" ne contribuent pas beaucoup à la réduction de la deviance et sont non statistiquement significatives. 
+On utilise maintenant la fonction anova(model_initial, model_manuel, test = "LRT") qui compare les 2 modèles. La p-valeur étant de très petite (0.0002431), nous concluons donc que le model_initial fournit un ajustement meilleur que le model_manuel.
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkmanuel  <- pchisq(1635.4 - 1303.084, 1179 - 1170, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkmanuel, scientific = TRUE))
+```
+La déviance null du modele_manuel est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1303.084 pour 1170 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_manuel avec plus de variables est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$.
+
+```{r}
+pvalMkMsatmanuel <- pchisq(1303.084, 1170, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatmanuel))
+```
+On testera ensuite $M_k$ contre $M_{sat}$. La déviance résiduelle du model_manuel eest de 1303.084 pour 1170 degrés de liberté. On remarquera que la p-valeur est de 0.004 et donc inférieur à 0.05. On rejette donc notre model_manuel car on lui préfère le modèle saturé. Notre modèle n'est pas suffisant.
+
+- Prédiction: Malgré le fait que le model_manuel soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 183/579 = 31%, un spécificité 396/579 = 0.68 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 472/601 = 78%. En tout le modele_manuel donne 73.6% de bonnes prédictions. Ce modèle a un meilleur TPR que le model_initial mais le poucentage de bonnes prédictions est un peu plus faible de 1.4%.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_manuel = predict(model_manuel, newdata = meteo_train, type = "response")
+pred_manuel = (pred_prob_manuel >= 0.5)
+table_manuel <- table(pred_manuel, meteo_train$pluie.demain)
+table_manuel_print <- as.data.frame.matrix(table_manuel)
+kable(table_manuel_print, caption = "Table de Décision - Model_manuel")
+
+accuracy_model_manuel <- (mean(pred_manuel == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_manuel))
+```
+Nous pouvons aussi peut définir un seuil $s$ optimal. Le seuil optimal reste donc proche de 0.5 et est de 0.51. Une fausse prédiction est enlevée. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_step_backward fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 79%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). L'AUC est un peu moins bon que pour le model_inital de -3%.
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_manuel <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_manuel <- (pred_prob_manuel >= seuils[i])
+  res_manuel[i] <- sum(pred_manuel & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_manuel & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_manuel, type = "l", main = "Optimisation du Seuil - Model_manuel", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_manuel <- seuils[which.min(res_manuel)]
+#cat("Meilleur seuil:", best_seuil_manuel, "\n")
+
+cout = function(s) {
+  pred_manuel <- (pred_prob_manuel >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_manuel & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_manuel & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5_manuel <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil_manuel <- cout(best_seuil_manuel)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil_manuel, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_manuel <- prediction(pred_prob_manuel, meteo_train$pluie.demain)
+perf_manuel <- performance(pred_roc_manuel, "tpr", "fpr")
+plot(perf_manuel, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_manuel <- performance(pred_roc_manuel, "auc")
+auc_value_manuel <- auc_manuel@y.values[[1]]
+#cat("AUC - model_manuel:", auc_value_manuel, "\n")
+
+results_manuel <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_manuel"),
+  Value = c(sprintf("%.2f", best_seuil_manuel), cost_0_5_manuel, cost_best_seuil_manuel, sprintf("%.2f", auc_value_manuel))
+)
+
+kable(results_manuel, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+
+### 3.1.3 Modèle automatique - Step Backward
+
+Nous continuerons par regarder un model_step_backward automatique, car les précédents modèles ne semblent pas totalement bien capter les ajustements de la variable réponse "pluie.demain". La fonction step sans précision génére directement la version "both". On privilégie la fonction step "backward" à la version "forward". Quant à la la version avec "both", elle donne le même modèle que la version "backward". Comme on commence avec un modèle complexe et riches en variables, on va réaliser le step backward à partir du model_initial et cela permet de simplifier progressivement tout en capturant les interactions importantes dés le départ. On présentera tous les résultats uniquement dans le html.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+model_step_back <- step(model_initial, direction = "backward")
+}
+```
+
+Le meilleur modèle donné par le fonction step(model_initial, direction = "backward") est le modèle présenté ci-dessous avec les coefficients, les odds ratio, la probabilité et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après 4 itérations du scoring de Fisher.
+
+```{r}
+model_step_backward <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin +    PressureMax + PressureMin + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+```
+
+```{r table-results2, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_step_backward <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin +    PressureMax + PressureMin + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+
+model_summary_step_backward <- summary(model_step_backward)$coefficients
+
+# Calcul des Odds Ratios
+odds_ratios_step_backward <- exp(model_summary_step_backward[, "Estimate"])
+
+# Calcul des Probas
+probabilities_step_backward <- (exp(model_summary_step_backward[, "Estimate"]) / (1 + exp(model_summary_step_backward[, "Estimate"]))) * 100
+
+result_table_step_backward <- data.frame(
+  Estimate = format(round(model_summary_step_backward[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary_step_backward[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary_step_backward[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary_step_backward[, "Pr(>|z|)"], 3), nsmall = 3),
+  `Odds Ratio` = format(round(odds_ratios_step_backward, 3), nsmall = 3),
+  `Probability (%)` = format(round(probabilities_step_backward, 3), nsmall = 3),
+  Significance = ifelse(model_summary_step_backward[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary_step_backward[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary_step_backward[, "Pr(>|z|)"] < 0.05, "*",                                       ifelse(model_summary_step_backward[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table_step_backward, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table_step_backward, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_step_backward <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin +    PressureMax + PressureMin + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+
+model_stats_step_backward <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_step_backward$null.deviance, model_step_backward$deviance, model_step_backward$iter, AIC(model_step_backward)),
+  DF = c(model_step_backward$df.null, model_step_backward$df.residual, NA, NA)
+)
+kable(model_stats_step_backward)
+```
+
+On remarque dans ce model_step_backward qu'il y a 14 coefficients statistiquement significatifs sur 17 variables. L'intercept n'est plus significatif comme dans le modele_manuel. Le modèle est moins complexe et à un meilleur AIC à 1282.8. La variable Snowfall n'est pas significative.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_step_backward)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF décrite plus haut. On remarque que certains VIF sont très importants comme ceux des variables de Pressure. Celui de "PressureMean" est à 169. Ceux des variables de températures sont entre 20 et 47. Il y a 3 variables "Pressure" et 2 variables "Temp" dans ce modèle. Comme elles sont très corrélées entre elles nous en enlèveront certaines dans un prochain model_step_backward_corr. Les résultats détaillés sont présentés dans le version html du document. Malgré les collinéarités nous allons poursuivre pour voir ce que cela donne.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_step_backward, test = "LRT")
+anova(model_initial, model_step_backward, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_step_backward, test = "LRT") présentée dans la version html du report. Dans le model_step_backward, 13 variables réduisent la deviance du modèle. "PressureMean" est la variable qui réduit le plus la deviance avec 168.15. On gardera cette variable pour le model_step_backward_corr. "WindDir80mMean" et "Snowfall" ne contribuent pas beaucoup à la réduction de la deviance et sont non statistiquement significatives. 
+On utilise maintenant la fonction anova(model_initial, model_step_backward, test = "LRT") qui compare les 2 modèles. La p-valeur étant de très grande (0.9709), nous concluons donc qu'il n'y a pas de différence significative entre les deux modèles en termes de qualité de l'ajustement. Néanmoins, comme le model_step_backward est plus simple, il est préférable de choisir ce modèle qui facilite l'interprétation et réduit le surajustement.
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkstepback <- pchisq(1635.4 - 1246.85, 1179 - 1162, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkstepback, scientific = TRUE))
+```
+
+La déviance null du modele_manuel est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1246.85 pour 1162 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_manuel avec plus de variables est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$.
+
+```{r}
+pvalMkMsatstepback <- pchisq(1246.85, 1162, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatstepback))
+```
+On testera ensuite $M_k$ contre $M_{sat}$. La déviance résiduelle du model_step_backward est de 1246.85 pour 1162 degrés de liberté. On remarquera que la p-valeur est de 0.042 et est toujours inférieure à 0.05 mais se rapproche du seuil de significativité. On rejette donc notre model_step_backward car on lui préfère le modèle saturé. Notre modèle n'est pas encore suffisant.
+
+- Prédiction: Malgré le fait que le model_step_backward soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 162/579 = 27%, un spécificité 417/579 = 0.72 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 468/601 = 78%. En tout le model_step_backward donne 75% de bonnes prédictions. Ce modèle a un meilleur TPR que le model_initial de 1% et le poucentage de bonnes prédictions est le même.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_step_backward = predict(model_step_backward, newdata = meteo_train, type = "response")
+pred_step_backward = (pred_prob_step_backward >= 0.5)
+table_step_backward <- table(pred_step_backward, meteo_train$pluie.demain)
+table_step_backward_print <- as.data.frame.matrix(table_step_backward)
+kable(table_step_backward_print, caption = "Table de Décision - Model_step_backward")
+
+accuracy_model_step_backward <- (mean(pred_step_backward == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_step_backward))
+```
+
+Nous pouvons aussi peut définir un seuil $s$ optimal. Le seuil optimal reste donc proche de 0.5 et est de 0.52. 10 fausses prédictions sont enlevées. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_manuel fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 82%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). L'AUC est identique au model_inital.
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_step_backward <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_step_backward <- (pred_prob_step_backward >= seuils[i])
+  res_step_backward[i] <- sum(pred_step_backward & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_step_backward & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_step_backward, type = "l", main = "Optimisation du Seuil - Model_step_backward", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_step_backward <- seuils[which.min(res_step_backward)]
+#cat("Meilleur seuil:", best_seuil_step_backward, "\n")
+
+cout = function(s) {
+  pred_step_backward <- (pred_prob_step_backward >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_step_backward & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_step_backward & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5_step_backward <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5_step_backward, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil_step_backward <- cout(best_seuil_step_backward)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil_step_backward, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_step_backward <- prediction(pred_prob_step_backward, meteo_train$pluie.demain)
+perf_step_backward <- performance(pred_roc_step_backward, "tpr", "fpr")
+plot(perf_step_backward, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_step_backward <- performance(pred_roc_step_backward, "auc")
+auc_value_step_backward <- auc_step_backward@y.values[[1]]
+#cat("AUC - model_manuel:", auc_value_step_backward, "\n")
+
+results_step_backward <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_step_backward"),
+  Value = c(sprintf("%.2f", best_seuil_step_backward), cost_0_5_step_backward, cost_best_seuil_step_backward, sprintf("%.2f", auc_value_step_backward))
+)
+
+kable(results_step_backward, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+
+### 3.1.4 Modèle - Step Backward avec correction VIF
+
+Nous continuerons par la correction du model_step_backward automatique, car il reste trop de colinéarité dans ce modèle, nous aurons donc ensuite le model_step_backward_corr. On retire d'abord, les variables "PressureMax" et "PressureMin", pour garder seulement "PressureMean" car cette variable explique mieux le deviance. En faisant cela le vif de cette variable descend de 169 à 1.25. On enlève ensuite la variable "TempMin" et on garde la variable "TempMean" car celle-ci explique plus la deviance. On passe d'un vif de 24 sur cette variable à 1.35. On enlèvera aussi la variable "WindSpeed80mMean" ayant un vif de 9.9. Tous les vif sont maintenant en dessous de 5. 
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+model_step_backward_1 <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+vif(model_step_backward_1)
+model_step_backward_2 <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+vif(model_step_backward_2)
+model_step_backward_3 <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+vif(model_step_backward_3)
+}
+```
+
+Nous terminerons avec le model corrigé model_step_backward_corr présenté ci-dessous avec les coefficients, les odds ratio, la probabilité et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après 4 itérations du scoring de Fisher.
+
+```{r}
+model_step_backward_corr <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+```
+
+```{r table-results3, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_step_backward_corr <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+
+model_summary_step_backward_corr <- summary(model_step_backward_corr)$coefficients
+
+# Calcul des Odds Ratios
+odds_ratios_step_backward_corr <- exp(model_summary_step_backward_corr[, "Estimate"])
+
+# Calcul des Probas
+probabilities_step_backward_corr <- (exp(model_summary_step_backward_corr[, "Estimate"]) / (1 + exp(model_summary_step_backward_corr[, "Estimate"]))) * 100
+
+result_table_step_backward_corr <- data.frame(
+  Estimate = format(round(model_summary_step_backward_corr[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary_step_backward_corr[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary_step_backward_corr[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary_step_backward_corr[, "Pr(>|z|)"], 3), nsmall = 3),
+  `Odds Ratio` = format(round(odds_ratios_step_backward_corr, 3), nsmall = 3),
+  `Probability (%)` = format(round(probabilities_step_backward_corr, 3), nsmall = 3),
+  Significance = ifelse(model_summary_step_backward_corr[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary_step_backward_corr[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary_step_backward_corr[, "Pr(>|z|)"] < 0.05, "*",                                       ifelse(model_summary_step_backward_corr[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table_step_backward_corr, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table_step_backward_corr, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_step_backward_corr <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, data = meteo_train)
+
+model_stats_step_backward_corr <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_step_backward_corr$null.deviance, model_step_backward_corr$deviance, model_step_backward_corr$iter, AIC(model_step_backward_corr)),
+  DF = c(model_step_backward_corr$df.null, model_step_backward_corr$df.residual, NA, NA)
+)
+kable(model_stats_step_backward_corr)
+```
+
+On remarque dans ce model_step_backward_corr que les coefficients sont moins statistiquement significatifs que dans model_step_backward. L'intercept n'est pas significatif comme dans le model_step_backward. Le modèle est moins complexe et à un moins bon AIC à 1316.7. La variable Snowfall n'est toujours pas significative.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_step_backward_corr)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF décrite plus haut, nous avons exclus toute colinéarité du model_step_backward_corr. Les résultats détaillés sont présentés dans le version html du document.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_step_backward_corr, test = "LRT")
+anova(model_initial, model_step_backward_corr, test = "LRT")
+anova(model_step_backward, model_step_backward_corr, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_step_backward_corr, test = "LRT") présentée dans la version html du report. Dans le model_step_backward_corr, 9 variables réduisent la deviance du modèle. "PressureMean" est la variable qui réduit le plus la deviance avec 168.15. "TotalCloudMin", "WindSpeed10mMin" et "Snowfall" ne contribuent pas beaucoup à la réduction de la deviance et sont non statistiquement significatives. 
+On utilise maintenant la fonction anova(model_initial, model_step_backward_corr, test = "LRT") qui compare les 2 modèles. La p-valeur étant de très faible (0.002717), nous concluons donc qu'il y a une différence significative entre les deux modèles en termes de qualité de l'ajustement. Le model_step_backward_corr est plus simple mais il n'est préférable de choisir ce modèle par rapport au model_initial. On utilise maintenant la fonction anova(model_step_backward, model_step_backward_corr, test = "LRT"). La p-valeur étant de très faible (1.777e-08), nous concluons donc qu'il y a une différence significative entre les deux modèles en termes de qualité de l'ajustement. Le model_step_backward ajuste significativement mieux les données que le model_step_backward_corr.
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkstepbackcorr <- pchisq(1635.4 - 1288.715, 1179 -  1166, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkstepbackcorr, scientific = TRUE))
+```
+
+La déviance null du modele_manuel est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1288.71 pour 1166 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_manuel avec plus de variables est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$.
+
+```{r}
+pvalMkMsatstepbackcorr <- pchisq(1288.715,  1166, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatstepbackcorr))
+```
+
+On testera ensuite $M_k$ contre $M_{sat}$. La déviance résiduelle du model_step_backward_corr est de 1288.71 pour 1166 degrés de liberté. On remarquera que la p-valeur est de 0.007 et est toujours inférieure à 0.05. On rejette donc notre model_step_backward_corr car on lui préfère le modèle saturé. Notre modèle n'est pas encore suffisant.
+
+- Prédiction: Malgré le fait que le model_step_backward_corr soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 183/579 = 31%, un spécificité 396/579 = 0.68 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 465/601 = 77%. En tout le model_step_backward_corr donne 72.97% de bonnes prédictions. Ce modèle a un moins bon TPR que le model_step_backward de -1% et le pourcentage de bonnes prédictions est le moins bon de tous les modèles.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_step_backward_corr = predict(model_step_backward_corr, newdata = meteo_train, type = "response")
+pred_step_backward_corr = (pred_prob_step_backward_corr >= 0.5)
+table_step_backward_corr <- table(pred_step_backward_corr, meteo_train$pluie.demain)
+table_step_backward_corr_print <- as.data.frame.matrix(table_step_backward_corr)
+kable(table_step_backward_corr_print, caption = "Table de Décision - Model_step_backward_corr")
+
+accuracy_model_step_backward_corr <- (mean(pred_step_backward_corr == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_step_backward_corr))
+```
+
+Nous pouvons aussi peut définir un seuil $s$ optimal. Le seuil optimal reste donc proche de 0.5 et est de 0.58. 12 fausses prédictions sont enlevées. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_step_backward_corr fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 80%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). L'AUC est inférieur au model_step_backward.
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_step_backward_corr <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_step_backward_corr <- (pred_prob_step_backward_corr >= seuils[i])
+  res_step_backward_corr[i] <- sum(pred_step_backward_corr & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_step_backward_corr & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_step_backward_corr, type = "l", main = "Optimisation du Seuil - Model_step_backward_corr", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_step_backward_corr <- seuils[which.min(res_step_backward_corr)]
+#cat("Meilleur seuil:", best_seuil_step_backward_corr, "\n")
+
+cout = function(s) {
+  pred_step_backward_corr <- (pred_prob_step_backward_corr >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_step_backward_corr & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_step_backward_corr & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5_step_backward_corr <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5_step_backward_corr, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil_step_backward_corr <- cout(best_seuil_step_backward_corr)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil_step_backward_corr, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_step_backward_corr <- prediction(pred_prob_step_backward_corr, meteo_train$pluie.demain)
+perf_step_backward_corr <- performance(pred_roc_step_backward_corr, "tpr", "fpr")
+plot(perf_step_backward_corr, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_step_backward_corr <- performance(pred_roc_step_backward_corr, "auc")
+auc_value_step_backward_corr <- auc_step_backward_corr@y.values[[1]]
+#cat("AUC - model_step_backward_corr:", auc_value_step_backward_corr, "\n")
+
+results_step_backward_corr <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_step_backward_corr"),
+  Value = c(sprintf("%.2f", best_seuil_step_backward_corr), cost_0_5_step_backward_corr, cost_best_seuil_step_backward_corr, sprintf("%.2f", auc_value_step_backward_corr))
+)
+
+kable(results_step_backward_corr, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+
+### 3.1.5 Conclusion choix de modèle logisitique
+
+Nous avons vu que malgré ses défauts le model_step_backward reste le meilleur des 4 modèles en terme d'AIC, de deviance, et d'AUC. Nous verrons cela plus loin dans la cross validation des modèles.
+
+## 3.2 Choix du modèle Probit
+
+Nous allons étudier maintenant les modèles probit. Un modèle probit est un modèle de régression utilisé pour les variables dépendantes binaires. Il est principalement utilisé pour estimer la probabilité qu'un événement se produise. Le modèle probit se déinit comme suit $Y_i \sim \text{Bernoulli}(p_i)$ avec $p_i = \Phi(\beta_0 + \beta_1 x_i)$ où $\Phi$ est la fonction de répartition de la loi $\mathcal{N}(0, 1)$. Les modèles logit et probit donnent des résultats très proches. Nous allons ici étudier le model_initial puis un model_step provenant du model_inital version probit.
+
+### 3.2.1 Modèle initial Probit
+
+Nous commencerons par regarder un model_initial en fonction de lien probit, qui prend en compte toutes les variables encore présente dans "meteo_train".
+
+```{r}
+model_initial_probit <- glm(pluie.demain ~ ., family = binomial(link="probit"), data = meteo_train)
+```
+
+Ci dessous est présenté, le summary du model_initial_probit avec les coefficients et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après cinq itérations du scoring de Fisher.
+
+```{r table-results4, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_initial_probit <- glm(pluie.demain ~ ., family = binomial(link="probit"), data = meteo_train)
+model_summary_initial_probit <- summary(model_initial_probit)$coefficients
+
+result_table_initial_probit <- data.frame(
+  Estimate = format(round(model_summary_initial_probit[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary_initial_probit[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary_initial_probit[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary_initial_probit[, "Pr(>|z|)"], 3), nsmall = 3),
+  Significance = ifelse(model_summary_initial_probit[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary_initial_probit[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary_initial_probit[, "Pr(>|z|)"] < 0.05, "*", 
+                                      ifelse(model_summary_initial_probit[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table_initial_probit, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+   kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table_initial_probit, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_initial_probit <- glm(pluie.demain ~ ., family = binomial(link="probit"), data = meteo_train)
+
+model_stats_initial_probit <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_initial_probit$null.deviance, model_initial_probit$deviance, model_initial_probit$iter, AIC(model_initial_probit)),
+  DF = c(model_initial_probit$df.null, model_initial_probit$df.residual, NA, NA)
+)
+kable(model_stats_initial_probit)
+```
+
+On remarque dans ce model_initial_probit que l'AIC est moins bon que dans le model_initial (1324 au lieu de 1320) ainsi que la résidual déviance (1236 au lieu de 1232).
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_initial_probit)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF nous avons parmi les vif les plus importants "TempMean" avec un vif de 251 (model_initial logit = 258) et surtout "PressureMean avec un vif de 191 (model_initial logit = 189). Sur les 43 variables du modèle, 16 ont un vif inférieur à 7, 3 ont un vif supérieur à 100 et 24 ont un vif entre 7 et 100. Ce modèle a toujours de nombreuses colinéarité en probit.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_initial_probit, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_initial_probit, test = "LRT") présentée dans la version html du report. Dans le model_initial_probit, 18 variables réduisent la deviance du le modèle. Ces variables apportent une contribution significative et utile à la prédiction de la variable réponse. Parmi les plus significatives on retrouve les variables: "PressureMin", "PressureMean", "PrecipitationTotal", "TotalCloudMean", "WindDir900mbMean", "HumidityMean", "WindSpeed10mMean", "TempMean". 
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkiniprobit <- pchisq(1635.4 - 1236.123, 1179 -  1136, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkiniprobit, scientific = TRUE))
+```
+
+La déviance null du modele_manuel est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1236.123 pour 1136 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_manuel avec plus de variables est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$.
+
+```{r}
+pvalMkMsatiniprobit <- pchisq(1236.123,  1136, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatiniprobit))
+```
+
+On testera ensuite $M_k$ contre $M_{sat}$. La déviance résiduelle du model_inital_probit est de 1236.123 pour 1136 degrés de liberté. On remarquera que la p-valeur est de 0.02 et est toujours inférieure à 0.05. On rejette donc notre model_inital_probit car on lui préfère le modèle saturé. Notre modèle n'est pas encore suffisant et a p-valeur moins important que le model_initial
+
+- Prédiction: Malgré le fait que le model_inital_probit soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 161/579 = 27%, un spécificité 418/579 = 0.72 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 464/601 = 77%. En tout le model_inital_probit donne 74.75% de bonnes prédictions. Ce modèle donne des prédictions moins bonnes que le model_initial.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_initial_probit = predict(model_initial_probit, newdata = meteo_train, type = "response")
+pred_initial_probit = (pred_prob_initial_probit >= 0.5)
+table_initial_probit <- table(pred_initial_probit, meteo_train$pluie.demain)
+table_initial_probit_print <- as.data.frame.matrix(table_initial_probit)
+kable(table_initial_probit_print, caption = "Table de Décision - Model_initial_probit")
+
+accuracy_model_initial_probit <- (mean(pred_initial_probit == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_initial_probit))
+```
+
+Nous pouvons aussi peut définir un seuil $s$ optimal. Le seuil optimal reste donc proche de 0.5 et est de 0.51. 2 fausses prédictions sont enlevées. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_initial_probit fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 82%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). L'AUC est égale au model_initial.
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_initial_probit <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_initial_probit <- (pred_prob_initial_probit >= seuils[i])
+  res_initial_probit[i] <- sum(pred_initial_probit & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_initial_probit & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_initial_probit, type = "l", main = "Optimisation du Seuil - Model_initial_probit", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_initial_probit <- seuils[which.min(res_initial_probit)]
+#cat("Meilleur seuil:", best_seuil_initial_probit, "\n")
+
+cout = function(s) {
+  pred_initial_probit <- (pred_prob_initial_probit >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_initial_probit & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_initial_probit & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5_initial_probit <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5_initial_probit, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil_initial_probit <- cout(best_seuil_initial_probit)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil_initial_probit, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_initial_probit <- prediction(pred_prob_initial_probit, meteo_train$pluie.demain)
+perf_initial_probit <- performance(pred_roc_initial_probit, "tpr", "fpr")
+plot(perf_initial_probit, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_initial_probit <- performance(pred_roc_initial_probit, "auc")
+auc_value_initial_probit <- auc_initial_probit@y.values[[1]]
+#cat("AUC - model_initial_probit:", auc_value_initial_probit, "\n")
+
+results_initial_probit <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_initial_probit"),
+  Value = c(sprintf("%.2f", best_seuil_initial_probit), cost_0_5_initial_probit, cost_best_seuil_initial_probit, sprintf("%.2f", auc_value_initial_probit))
+)
+
+kable(results_initial_probit, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+
+### 3.2.2 Modèle initial Step Probit
+
+Nous continuerons par regarder un model_step en fonction de lien probit pour exclure certaines variables du modèle model_initial_probit.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+model_step_prob <- step(model_initial_probit)
+}
+```
+
+Le modèle probit donné par la fonction step est le suivant:
+
+```{r}
+model_step_probit <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + TotalCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin + 
+PressureMax + PressureMin + TotalCloudMin + HighCloudMax + MediumCloudMax + LowCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial(link="probit"), data = meteo_train)
+```
+
+Ci dessous est présenté, le summary du model_step_probit avec les coefficients et la significativité. Le modèle a atteint la convergence vers l'estimateur du maximum de vraisemblance après cinq itérations du scoring de Fisher.
+
+```{r table-results5, results='asis', message=FALSE, warning=FALSE, echo=FALSE}
+
+model_step_probit <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + TotalCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin + 
+PressureMax + PressureMin + TotalCloudMin + HighCloudMax + MediumCloudMax + LowCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial(link="probit"), data = meteo_train)
+
+model_summary_step_probit <- summary(model_step_probit)$coefficients
+
+result_table_step_probit  <- data.frame(
+  Estimate = format(round(model_summary_step_probit[, "Estimate"], 3), nsmall = 3),
+  `Std. Error` = format(round(model_summary_step_probit[, "Std. Error"], 3), nsmall = 3),
+  `z value` = format(round(model_summary_step_probit[, "z value"], 3), nsmall = 3),
+  `p value` = format(round(model_summary_step_probit[, "Pr(>|z|)"], 3), nsmall = 3),
+  Significance = ifelse(model_summary_step_probit[, "Pr(>|z|)"] < 0.001, "***",
+                        ifelse(model_summary_step_probit[, "Pr(>|z|)"] < 0.01, "**",
+                               ifelse(model_summary_step_probit[, "Pr(>|z|)"] < 0.05, "*", 
+                                      ifelse(model_summary_step_probit[, "Pr(>|z|)"] < 0.1, ".", ""))))
+)
+
+if (knitr::is_latex_output()) {
+  kable(result_table_step_probit, format = "latex", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+   kable_styling(latex_options = "striped", position = "left")
+} else {
+  kable(result_table_step_probit, format = "html", booktabs = TRUE, escape = FALSE, digits = 3) %>%
+    kable_styling(bootstrap_options = c("striped", "hover"))
+}
+```
+
+```{r, fig.width=6, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+model_step_probit <- glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + TotalCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin + 
+PressureMax + PressureMin + TotalCloudMin + HighCloudMax + MediumCloudMax + LowCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial(link="probit"), data = meteo_train)
+
+model_stats_step_probit <- data.frame(
+  Statistic = c("Null Deviance", "Residual Deviance", "Number of Fisher Scoring Iterations", "AIC"),
+  Value = c(model_step_probit$null.deviance, model_step_probit$deviance, model_step_probit$iter, AIC(model_step_probit)),
+  DF = c(model_step_probit$df.null, model_step_probit$df.residual, NA, NA)
+)
+kable(model_stats_step_probit)
+```
+
+On remarque que le model_step_probit est différent du model_step_backward en termes de variables. L'AIC reste tout de même l'un des meilleurs parmi les modèles avec 1286.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Vérification de la colinéarité
+vif(model_step_probit)
+}
+```
+
+- Colinéarité : En utilisant la fonction VIF nous avons parmi les vif les plus importants  "PressureMean avec un vif de 169. Ce modèle a toujours de nombreuses colinéarité en probit sur les variables "Pressure" et "Temp". Il faudrait retirer ses variables ou leurs variables corrélées.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+# Impact sur la deviance
+anova(model_step_probit, test = "LRT")
+anova(model_initial_probit, model_step_probit, test = "LRT")
+}
+```
+
+- Table deviance: Nous utiliserons tout d'abord, la fonction anova(model_step_probit, test = "LRT") présentée dans la version html du report. Dans le model_step_probit, 14 variables réduisent la deviance du le modèle. Ces variables apportent une contribution significative et utile à la prédiction de la variable réponse. Parmi les plus significatives on retrouve les variables: "PressureMin", "PressureMean", "TotalCloudMean", "WindDir900mbMean", "WindSpeed10mMax", "TempMean", "MediumCloudMax", "HighCloudMax", "WindSpeed80mMean". Ensuite nous utiliserons la fonction anova(model_initial_probit, model_step_probit, test = "LRT"). La p-valeur est égale à 0.9813 et nous remarquons que la différence entre les deux modèles n'est pas statistiquement significative. On pourra préférer le model_step_probit car il a moins de variables.
+
+- Test de deviance: Nous utiliserons ensuite un test de deviance pour comparer notre modèle noté génériquement $M_k$ dans un premier temps à un modèle null $M_0$. Nous ferons ensuite des tests du $\chi^2$ de rapport de vraisemblance. 
+
+```{r}
+pvalMoMkstepprobit <- pchisq(1635.4 - 1248.701, 1179 -  1161, lower = F)
+cat("La p-valeur pour la différence de déviance est :", format(pvalMoMkstepprobit, scientific = TRUE))
+```
+
+La déviance null du modele_manuel est de 1635.4 avec 1179 degrés de liberté et la déviance résiduelle est de 1248.701 pour 1161 degrés de liberté. Avec une p-valeur inférieur à 0.05, le model_manuel avec plus de variables est meilleur en termes d'ajustement par rapport au modèle modèle $M_0$.
+
+```{r}
+pvalMkMsatstepprobit <- pchisq(1248.701,  1161, lower = F)
+cat("La p-valeur est:", sprintf("%.3f", pvalMkMsatstepprobit))
+```
+
+On testera ensuite $M_k$ contre $M_{sat}$. La déviance résiduelle du model_inital_probit est de 1248.701 pour 1161 degrés de liberté. On remarquera que la p-valeur est de 0.037 et est toujours inférieure à 0.05. On rejette donc notre model_step_probit car on lui préfère le modèle saturé. Notre modèle n'est pas encore suffisant et a p-valeur moins important que le model_step_backward.
+
+- Prédiction: Malgré le fait que le model_step_probit soit rejeté, nous allons tout de même calculer les prédictions pour ce modèle pour pouvoir comparer avec les autre modèle. Voici la table de décision ci-dessous avec un seuil de décision fixé à 0.5 pour comparer les modèles. Nous avons des FPR (False Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 0)$ = 167/579 = 29%, un spécificité 412/579 = 0.71 = 1-FPR et sensitivité TPR (True Positive Rate) = $P(\tilde{Y} = 1 \mid Y = 1)$ = 465/601 = 77%. En tout le model_step_probit donne 74.32% de bonnes prédictions. Ce modèle donne des prédictions un peu moins bonnes que le model_initial_probit et le model_step_backward.
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+pred_prob_step_probit = predict(model_step_probit, newdata = meteo_train, type = "response")
+pred_step_probit = (pred_prob_step_probit >= 0.5)
+table_step_probit <- table(pred_step_probit, meteo_train$pluie.demain)
+table_step_probit_print <- as.data.frame.matrix(table_step_probit)
+kable(table_step_probit_print, caption = "Table de Décision - Model_step_probit")
+
+accuracy_model_step_probit <- (mean(pred_step_probit == (meteo_train$pluie.demain == "TRUE")))*100
+cat("Bonnes prédictions:", sprintf("%.2f%%", accuracy_model_step_probit))
+```
+
+Nous pouvons aussi peut définir un seuil $s$ optimal. Le seuil optimal reste donc proche de 0.5 et est de 0.46. 8 fausses prédictions sont enlevées. 
+Nous avons aussi calculé la courbe ROC (receiving operator characteristic) avec en abscisse les FPR et en ordonnée les TPR. On voit que la courbe est au dessus de la droite d'équation $y=x$, notre modele_step_probit fait donc mieux que l'aléatoire et l'AUC (Area Under Curve) qui mesure la qualité de la classification est de 82%, ce qui est un très bon score puisqu'il est au-dessous de la classification aléatoire (AUC=50%). L'AUC est égale au model_initial_probit.
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+par(mfrow = c(1, 2))
+# Optimisation du seuil
+seuils <- seq(0, 1, by = 0.01)
+res_step_probit <- rep(NA, length(seuils))
+
+for (i in 1:length(seuils)) {
+  pred_step_probit <- (pred_prob_step_probit >= seuils[i])
+  res_step_probit[i] <- sum(pred_step_probit & (meteo_train$pluie.demain == "FALSE")) + sum(!pred_step_probit & (meteo_train$pluie.demain == "TRUE"))
+}
+
+# Tracé du graph en fonction du seuil
+plot(seuils, res_step_probit, type = "l", main = "Optimisation du Seuil - Model_step_probit", xlab = "Seuil", ylab = "Métrique", cex.main = 0.6)
+best_seuil_step_probit <- seuils[which.min(res_step_probit)]
+#cat("Meilleur seuil:", best_seuil_step_probit, "\n")
+
+cout = function(s) {
+  pred_step_probit <- (pred_prob_step_probit >= s)
+  # Coût = 1 * nombre de faux positifs + 1 * nombre de faux négatifs
+1 * sum(pred_step_probit & (meteo_train$pluie.demain == "FALSE")) + 
+               1 * sum(!pred_step_probit & (meteo_train$pluie.demain == "TRUE"))
+}
+
+cost_0_5_step_probit <- cout(0.5)
+#cat("Coût pour le seuil de 0.5:", cost_0_5_step_probit, "\n")
+
+# Calculer et afficher le coût pour le meilleur seuil
+cost_best_seuil_step_probit <- cout(best_seuil_step_probit)
+#cat("Coût pour le meilleur seuil:", cost_best_seuil_step_probit, "\n")
+
+# Calcul et tracé de la courbe ROC
+pred_roc_step_probit <- prediction(pred_prob_step_probit, meteo_train$pluie.demain)
+perf_step_probit <- performance(pred_roc_step_probit, "tpr", "fpr")
+plot(perf_step_probit, col = "blue", main = "Courbe ROC", cex.main = 0.6)
+abline(0, 1, lty = 2, col = "red") # Ligne de référence
+abline(1,-1, lty = 2, col ="darkred")
+# Calcul de l'AUC
+auc_step_probit <- performance(pred_roc_step_probit, "auc")
+auc_value_step_probit <- auc_step_probit@y.values[[1]]
+#cat("AUC - model_step_probit:", auc_value_step_probit, "\n")
+
+results_step_probit <- data.frame(
+  Metric = c("Meilleur seuil", "Coût pour le seuil de 0.5", "Coût pour le meilleur seuil", "AUC - model_step_probit"),
+  Value = c(sprintf("%.2f", best_seuil_step_probit), cost_0_5_step_probit, cost_best_seuil_step_probit, sprintf("%.2f", auc_value_step_probit))
+)
+
+kable(results_step_probit, caption = "Seuil, Coût 0.5, Coût Seuil Optimal, AUC")
+```
+### 3.2.3 Conclusion choix de modèle probit
+
+Nous avons vu que malgré ses défauts le model_step_probit reste le meilleur des 2 modèles en terme d'AIC, de deviance, et d'AUC. Nous verrons cela plus loin dans la cross validation des modèles. 
+
+# 4. Cross Validation des modèles
+
+Pour faire la cross validation des modèles nous choisirons, la cross validation k-fold qui est une méthode de validation des modèles qui permet de mieux estimer la performance d'un modèle en utilisant des échantillons répétés de l'ensemble des données. Nous choissisons $k=10$ qui est le nombre de fold. Pour chaque fold $i$ de 1 à 10, on va entraîner le modèle, faire des prédictions sur le fold de test pour chaque modèle et ensuite calculer la proportion de bonnes prédictions ("Mean Accuracy") et calculer l'erreur moyenne ("Mean Error"). Les résultats sont présentés ci-dessous:
+
+```{r, fig.width=8, fig.height=4, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+
+#k-fold 10
+# Validation croisée k-fold
+
+k = 10
+index = sample(1:k, nrow(meteo_train), replace=T)
+res.model_initial = rep(NA, k)
+res.model_manuel = rep(NA, k)
+res.model_step_backward  = rep(NA, k)
+res.model_step_backward_corr  = rep(NA, k)
+res.model_initial_probit = rep(NA, k)
+res.model_step_probit  = rep(NA, k)
+error.model_initial = rep(NA, k)
+error.model_manuel = rep(NA, k)
+error.model_step_backward = rep(NA, k)
+error.model_step_backward_corr = rep(NA, k)
+error.model_initial_probit = rep(NA, k)
+error.model_step_probit = rep(NA, k)
+
+for(i in 1:k){
+  reg.model_initial =  glm(pluie.demain ~ ., family = binomial, 
+    data = meteo_train[index != i, ]
+  )
+  
+   reg.model_manuel = glm(pluie.demain ~ MediumCloudMax + HighCloudMax + TotalCloudMax + WindGustMax + TempMin + PressureMin + WindDir900mbMean + Sunshine + PrecipitationTotal, family = binomial, 
+    data = meteo_train[index != i, ]
+  )
+  
+reg.model_step_backward = glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin +    PressureMax + PressureMin + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, 
+    data = meteo_train[index != i, ]
+  )
+   
+reg.model_step_backward_corr = glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + MediumCloudMean + WindDir80mMean + WindDir900mbMean + TotalCloudMax + TotalCloudMin + MediumCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial, 
+    data = meteo_train[index != i, ]
+  )
+        
+reg.model_initial_probit = glm(pluie.demain ~ ., family = binomial(link="probit"), data = meteo_train[index != i, ]
+  )
+
+reg.model_step_probit = glm(pluie.demain ~ Year + TempMean + PressureMean + Snowfall + TotalCloudMean + WindSpeed80mMean + WindDir80mMean + WindDir900mbMean + TempMin + 
+PressureMax + PressureMin + TotalCloudMin + HighCloudMax + MediumCloudMax + LowCloudMax + WindSpeed10mMax + WindSpeed10mMin + WindGustMax, family = binomial(link="probit"),data = meteo_train[index != i, ]
+  )
+
+  pred.model_initial = predict(reg.model_initial, newdata=meteo_train[index == i, ],
+                            type="response")
+  pred.model_manuel = predict(reg.model_manuel, newdata=meteo_train[index == i, ],
+                        type="response")
+  
+  pred.model_step_backward = predict(reg.model_step_backward, newdata=meteo_train[index == i, ],type="response")
+  
+    pred.model_step_backward_corr = predict(reg.model_step_backward_corr, newdata=meteo_train[index == i, ],type="response")
+    
+    pred.model_initial_probit = predict(reg.model_initial_probit, newdata=meteo_train[index == i, ],                            type="response") 
+    
+    pred.model_step_probit = predict(reg.model_step_probit, newdata=meteo_train[index == i, ],type="response")
+    
+  res.model_initial[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_initial >.5), na.rm = T)
+  res.model_manuel[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_manuel >.5), na.rm = T)
+    res.model_step_backward[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_step_backward >.5), na.rm = T)
+
+    res.model_step_backward_corr[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_step_backward_corr >.5), na.rm = T)
+    
+      res.model_initial_probit[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_initial_probit >.5), na.rm = T)   
+      
+          res.model_step_probit[i] = mean(meteo_train[index==i, "pluie.demain"] == (pred.model_step_probit >.5), na.rm = T)
+    
+error.model_initial[i] = mean(abs(pred.model_initial - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+  error.model_manuel[i] = mean(abs(pred.model_manuel - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+  
+    error.model_step_backward[i] = mean(abs(pred.model_step_backward - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+    
+error.model_step_backward_corr[i] = mean(abs(pred.model_step_backward_corr - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+
+error.model_initial_probit[i] = mean(abs(pred.model_initial_probit - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+
+    error.model_step_probit[i] = mean(abs(pred.model_step_probit - as.numeric(meteo_train[index == i, "pluie.demain"][[1]])), na.rm = TRUE)
+}
+
+# Moyenne de la précision et de l'erreur 0-1
+mean_accuracy_model_initial = mean(res.model_initial)
+mean_accuracy_model_manuel = mean(res.model_manuel)
+mean_accuracy_model_step_backward = mean(res.model_step_backward)
+mean_accuracy_model_step_backward_corr = mean(res.model_step_backward_corr)
+mean_accuracy_model_initial_probit = mean(res.model_initial_probit)
+mean_accuracy_model_step_probit = mean(res.model_step_probit)
+
+mean_error_model_initial = mean(error.model_initial)
+mean_error_model_manuel = mean(error.model_manuel)
+mean_error_model_step_backward = mean(error.model_step_backward)
+mean_error_model_step_backward_corr = mean(error.model_step_backward_corr)
+mean_error_model_initial_probit = mean(error.model_initial_probit)
+mean_error_model_step_probit = mean(error.model_step_probit)
+
+results_cross_validation <- data.frame(
+  Model = c("model_initial", "model_manuel", "model_step_backward", "model_step_backward_corr", "model_initial_probit", "model_step_probit"),
+  Mean_Accuracy = c(mean_accuracy_model_initial, mean_accuracy_model_manuel, mean_accuracy_model_step_backward, mean_accuracy_model_step_backward_corr, mean_accuracy_model_initial_probit, mean_accuracy_model_step_probit),
+  Mean_Error = c(mean_error_model_initial, mean_error_model_manuel, mean_error_model_step_backward, mean_error_model_step_backward_corr, mean_error_model_initial_probit,mean_error_model_step_probit )
+)
+
+kable(results_cross_validation)
+```
+
+Nous pouvons constater qu'à chaque run le model_step_backward à l'erreur la plus petite et le pourcentage de bonnes prédictions le plus élevé pour tous les modèles évalués. On sélectionnera donc ce modèle pour faire nos prédictions sur nos données "meteo_test" malgré ses inconvénients.
+
+# 5. Prédictions sur meteo_test
+
+Nous commençons pas charger le fichier "meteo_test" en appliquant le même traitement que pour "meteo_train" sur la variable X. Nous allons également renommer les variables pour avoir les mêmes noms entres les deux fichiers.
+
+```{r,message=FALSE, warning=FALSE}
+meteo_test <- read_csv("C:/Documents/Dauphine/Module 2/Modèle Linéaire Généralisé/Projet/meteo.test.csv", show_col_types = FALSE, name_repair = "minimal")
+meteo_test <- meteo_test[, -1]
+
+```
+
+```{r,message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+if (knitr::is_html_output()) {
+summary(meteo_test)
+}
+```
+
+```{r, fig.width=7, fig.height=3, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+meteo_test <- meteo_test %>%
+  rename(
+    Year = Year,
+    Month = Month,
+    Day = Day,
+    Hour = Hour,
+    Minute = Minute,
+    TempMean = Temperature.daily.mean..2.m.above.gnd.,
+    HumidityMean = Relative.Humidity.daily.mean..2.m.above.gnd.,
+    PressureMean = Mean.Sea.Level.Pressure.daily.mean..MSL.,
+    PrecipitationTotal = Total.Precipitation.daily.sum..sfc.,
+    Snowfall = Snowfall.amount.raw.daily.sum..sfc.,
+    TotalCloudMean = Total.Cloud.Cover.daily.mean..sfc.,
+    HighCloudMean = High.Cloud.Cover.daily.mean..high.cld.lay.,
+    MediumCloudMean = Medium.Cloud.Cover.daily.mean..mid.cld.lay.,
+    LowCloudMean = Low.Cloud.Cover.daily.mean..low.cld.lay.,
+    Sunshine = Sunshine.Duration.daily.sum..sfc.,
+    RadShortwave = Shortwave.Radiation.daily.sum..sfc.,
+    WindSpeed10mMean = Wind.Speed.daily.mean..10.m.above.gnd.,
+    WindDir10mMean = Wind.Direction.daily.mean..10.m.above.gnd.,
+    WindSpeed80mMean = Wind.Speed.daily.mean..80.m.above.gnd.,
+    WindDir80mMean = Wind.Direction.daily.mean..80.m.above.gnd.,
+    WindSpeed900mbMean = Wind.Speed.daily.mean..900.mb.,
+    WindDir900mbMean = Wind.Direction.daily.mean..900.mb.,
+    WindGustMean = Wind.Gust.daily.mean..sfc.,
+    TempMax = Temperature.daily.max..2.m.above.gnd.,
+    TempMin = Temperature.daily.min..2.m.above.gnd.,
+    HumidityMax = Relative.Humidity.daily.max..2.m.above.gnd.,
+    HumidityMin = Relative.Humidity.daily.min..2.m.above.gnd.,
+    PressureMax = Mean.Sea.Level.Pressure.daily.max..MSL.,
+    PressureMin = Mean.Sea.Level.Pressure.daily.min..MSL.,
+    TotalCloudMax = Total.Cloud.Cover.daily.max..sfc.,
+    TotalCloudMin = Total.Cloud.Cover.daily.min..sfc.,
+    HighCloudMax = High.Cloud.Cover.daily.max..high.cld.lay.,
+    HighCloudMin = High.Cloud.Cover.daily.min..high.cld.lay.,
+    MediumCloudMax = Medium.Cloud.Cover.daily.max..mid.cld.lay.,
+    MediumCloudMin = Medium.Cloud.Cover.daily.min..mid.cld.lay.,
+    LowCloudMax = Low.Cloud.Cover.daily.max..low.cld.lay.,
+    LowCloudMin = Low.Cloud.Cover.daily.min..low.cld.lay.,
+    WindSpeed10mMax = Wind.Speed.daily.max..10.m.above.gnd.,
+    WindSpeed10mMin = Wind.Speed.daily.min..10.m.above.gnd.,
+    WindSpeed80mMax = Wind.Speed.daily.max..80.m.above.gnd.,
+    WindSpeed80mMin = Wind.Speed.daily.min..80.m.above.gnd.,
+    WindSpeed900mbMax = Wind.Speed.daily.max..900.mb.,
+    WindSpeed900mbMin = Wind.Speed.daily.min..900.mb.,
+    WindGustMax = Wind.Gust.daily.max..sfc.,
+    WindGustMin = Wind.Gust.daily.min..sfc.,
+  )
+```
+
+En regardant le summary de "meteo_test" on s'aperçoit que les variables "Hour" et "Minute" sont semblables à celles de "meteo_train" avec une valeur constante à 0. Nous allons donc aussi exclure ces variables.
+
+```{r, message=FALSE, warning=FALSE, echo=knitr::is_html_output(), eval=TRUE}
+# Exclusion des variables "Hour" et "Minute" de meteo_train
+meteo_test <- meteo_test %>%
+  dplyr::select(-Hour, -Minute)
+```
+
+Nous continuerons en effectuant les prédictions avec le modèle sélectionné: model_step_backward. 
+
+```{r}
+pred_test = predict(model_step_backward, meteo_test, type = "response")
+pluie.demain = (pred_test>=0.5)
+```
+
+Nous allons ensuite imprimer nos résultats dans la table "meteo_test" et sortir un fichier de prédictions nommé : "Prediction_Sophie_ROBERT_OKADA.csv".
+
+```{r}
+predpluie <- cbind(meteo_test, pluie.demain)
+View(predpluie)
+write.table(predpluie,"Prediction_Sophie_ROBERT_OKADA.csv",sep=";",col.names=TRUE)
+
+```
+
+# 6. Conclusion du Projet
+
+Après une longue recherche sur le meilleur modèle, il n'a pas été simple de choisir parmi les modèles considérés. Le model_step_backward semble être le meilleur parmi ceux testés, mais il présente des défauts. Il aurait peut-être été judicieux de considérer le model_manuel, plus simple, bien que ses prédictions soient moins précises et que son erreur soit plus importante. Cela aurait également permis de réduire les risques d'overfitting.
+
+En conclusion, la prévision météorologique reste une tâche complexe en raison des interactions multiples entre les variables. Pour analyser ces variables, une analyse en composantes principales (ACP) aurait pu être plus pertinente dans le contexte de la prévision météorologique car cela nous aurait permis de réduire la dimensionnalité et d'améliorer la performance en réduisant la complexité du modèle.
+
+
+# 7. Bibliographie
+
+-   Cours Robin RYDER - Modèles Linéaires Généralisés
+
+-   Cours Vincent Rivoiard - Choix de Modèles
+
+# 8. Annexes
+
+## 8.1 Annexe 1 - Summary des données {#annexe1}
+
+```{r, results='asis', fig.width=16, fig.height=10, message=FALSE, warning=FALSE, echo=FALSE, eval=TRUE}
+
+library(summarytools)
+s = dfSummary(meteo_train)
+st_options(
+  plain.ascii = FALSE, 
+  style = "rmarkdown",
+  dfSummary.style = "grid",
+  dfSummary.valid.col = FALSE,
+  dfSummary.graph.magnif = .4,
+  subtitle.emphasis = FALSE,
+  tmp.img.dir = "/tmp"
+)
+define_keywords(title.dfSummary = "Summary Meteo_Train")
+dfSummary(meteo_train)
+```
+
+## 8.2 Annexe 2 - Lien GitHub
+
+Le lien vers le projet sur GitHub est le suivant: 
+
+[Voir le projet sur GitHub](https://github.com/risusof/ProjectGLMCDM)
